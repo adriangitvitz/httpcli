@@ -1,0 +1,26 @@
+# @name Form Login Test
+POST https://httpbin.org/post
+Content-Type: application/x-www-form-urlencoded
+User-Agent: httpcli-test/1.0
+
+username=testuser&password=secret123&remember=true&action=login
+
+###
+
+# @name Form Registration Test  
+POST https://httpbin.org/post
+Content-Type: application/x-www-form-urlencoded
+Authorization: Bearer form-test-token
+
+name=John+Doe&email=john%40example.com&age=25&interests=coding&interests=music&terms=accepted
+
+###
+
+# @name Mixed Form Data
+POST https://httpbin.org/post
+Content-Type: application/x-www-form-urlencoded
+X-Custom-Header: form-testing
+
+field1=value1&field2=value%20with%20spaces&field3=special%21%40%23%24%25&empty=&number=42
+
+###

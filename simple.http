@@ -1,0 +1,4 @@
+# @name Get IP
+GET https://httpbin.org/ip
+
+###

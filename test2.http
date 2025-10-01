@@ -1,0 +1,5 @@
+# @name Get JSON
+GET https://httpbin.org/json
+Accept: application/json
+
+###

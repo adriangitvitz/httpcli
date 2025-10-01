@@ -1,0 +1,26 @@
+# @name Get IP
+GET https://httpbin.org/ip
+
+###
+
+# @name Get JSON Data
+GET https://httpbin.org/json
+Accept: application/json
+
+###
+
+# @name Post Data
+POST https://httpbin.org/post
+Content-Type: application/json
+Authorization: Bearer test123
+
+{
+  "name": "Test User",
+  "email": "test@example.com",
+  "data": {
+    "key": "value",
+    "number": 42
+  }
+}
+
+###

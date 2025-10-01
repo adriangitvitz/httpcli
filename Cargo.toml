@@ -1,0 +1,104 @@
+[package]
+name = "httpcli"
+version = "0.1.0"
+edition = "2021"
+description = "A high-performance HTTP CLI tool with .http file support and syntax highlighting"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/adriannajera/httpcli"
+keywords = ["http", "cli", "api", "rest", "client"]
+categories = ["command-line-utilities", "web-programming::http-client"]
+
+[[bin]]
+name = "httpcli"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime and HTTP client
+tokio = { version = "1.0", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+hyper = { version = "1.0", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http-body-util = "0.1"
+hyper-rustls = { version = "0.27", default-features = false, features = ["webpki-roots", "http1", "http2"] }
+rustls = { version = "0.23.18", default-features = false, features = ["std", "tls12", "ring"] }
+rustls-pemfile = "2.0"
+rustls-pki-types = "1.0"
+webpki-roots = "0.26"
+
+# CLI and configuration
+clap = { version = "4.0", features = ["derive", "env", "unicode", "wrap_help"] }
+serde = { version = "1.0.215", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+toml = "0.8"
+
+# HTTP and URL parsing
+url = "2.4"
+http = "1.0"
+mime = "0.3"
+mime_guess = "2.0"
+
+# Syntax highlighting and terminal
+syntect = "5.0"
+crossterm = "0.27"
+ratatui = "0.24"
+tui-textarea = "0.4"
+
+# Performance and memory optimization
+mimalloc = { version = "0.1", default-features = false, optional = true }
+bytes = "1.0"
+smallvec = "1.0"
+hashbrown = "0.14"
+
+# Parser combinators for .http files
+nom = "7.0"
+regex = "1.0"
+
+# Utilities
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5.0"
+tempfile = "3.0"
+
+# Compression
+flate2 = "1.0"
+brotli = "3.0"
+
+# DNS resolution
+hickory-resolver = "0.24"
+
+# Authentication and security
+base64 = "0.22"
+ring = "0.17"
+
+# Environment variables
+dotenv = "0.15"
+
+# Serialization for caching
+bincode = "1.3"
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockito = "1.0"
+criterion = "0.5"
+proptest = "1.0"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true
+incremental = true
+
+[features]
+default = ["mimalloc"]
+mimalloc = ["dep:mimalloc"]

@@ -1,0 +1,64 @@
+# Rust
+/target/
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Configuration
+.env
+.env.local
+.env.*.local
+
+# Cache
+.cache/
+cache/
+
+# Test files
+test.http
+*.test.http
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+temp/
+tmp/
+
+# Benchmarking results
+benchmark_results/
+*.bench
+
+# SSL certificates (for development)
+*.pem
+*.key
+*.crt
+*.p12
+
+# Coverage reports
+coverage/
+*.profraw
+
+# IDE-specific files
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.iml
+
+# Documentation build
+/doc/
+
+# Package files
+*.deb
+*.rpm
+*.pkg
+*.dmg
