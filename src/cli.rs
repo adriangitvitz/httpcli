@@ -148,6 +148,22 @@ pub struct Cli {
     #[arg(long = "save", global = true)]
     pub save: Option<PathBuf>,
 
+    /// Download mode - stream response to file with progress bar
+    #[arg(short = 'D', long = "download", global = true)]
+    pub download: bool,
+
+    /// Output filename for download (auto-detect from URL if not provided)
+    #[arg(short = 'O', long = "output-file", global = true)]
+    pub output_file: Option<PathBuf>,
+
+    /// Continue/resume a partial download
+    #[arg(short = 'C', long = "continue", global = true)]
+    pub resume: bool,
+
+    /// Form data fields (key=value or file@path for multipart uploads)
+    #[arg(long = "form", global = true, action = clap::ArgAction::Append)]
+    pub form: Vec<String>,
+
     /// Pretty print JSON responses
     #[arg(long = "json", global = true)]
     pub json: bool,

@@ -1,6 +1,6 @@
 use crate::error::{HttpCliError, Result};
 use nom::{
-    bytes::complete::{tag, take_until, take_while, take_while1},
+    bytes::complete::{tag, take_while, take_while1},
     character::complete::{line_ending, multispace0, not_line_ending, space0, space1},
     combinator::opt,
     multi::{many0, many1},

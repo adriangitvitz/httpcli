@@ -109,12 +109,25 @@ impl HttpClient {
 
         debug!("Executing {} request to {}", method, url);
 
+        // Handle download mode separately
+        if cli.download {
+            return self.download_file(method, url, cli).await;
+        }
+
+        // Determine content type (multipart takes precedence)
+        let content_type = if !cli.form.is_empty() {
+            let (_body, ct) = self.build_multipart_body(&cli.form).await?;
+            Some(ct)
+        } else {
+            cli.content_type.clone()
+        };
+
         let request = Request::builder()
             .method(method)
             .url(url)
             .headers(&cli.headers)
             .body(self.build_request_body(cli).await?)
-            .content_type(cli.content_type.as_deref())
+            .content_type(content_type.as_deref())
             .user_agent(&self.config.client.user_agent)
             .auth(self.build_auth(cli)?)?
             .timeout(Duration::from_secs(self.config.client.timeout))
@@ -259,6 +272,19 @@ impl HttpClient {
     }
 
     async fn build_request_body(&self, cli: &Cli) -> Result<Option<Bytes>> {
+        // Check for multipart form data first
+        if !cli.form.is_empty() {
+            let (body, _content_type) = self.build_multipart_body(&cli.form).await?;
+            if body.len() as u64 > self.config.client.max_request_body_size {
+                return Err(HttpCliError::Generic(format!(
+                    "Request body size ({} bytes) exceeds maximum allowed size ({} bytes)",
+                    body.len(),
+                    self.config.client.max_request_body_size
+                )));
+            }
+            return Ok(Some(body));
+        }
+
         if let Some(ref data) = cli.data {
             let body_bytes = Bytes::from(data.clone());
             if body_bytes.len() as u64 > self.config.client.max_request_body_size {
@@ -284,6 +310,72 @@ impl HttpClient {
         }
     }
 
+    async fn build_multipart_body(&self, form_fields: &[String]) -> Result<(Bytes, String)> {
+        use uuid::Uuid;
+
+        // Generate unique boundary
+        let boundary = format!("----httpcli{}", Uuid::new_v4().simple());
+        let mut body = Vec::new();
+
+        for field in form_fields {
+            if let Some((key, value)) = field.split_once('=') {
+                body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+
+                if value.starts_with('@') {
+                    // File upload: field@path
+                    let file_path = &value[1..];
+                    let path = std::path::Path::new(file_path);
+
+                    if !path.exists() {
+                        return Err(HttpCliError::Generic(format!(
+                            "File not found: {}",
+                            file_path
+                        )));
+                    }
+
+                    let filename = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("file");
+
+                    let content = tokio::fs::read(path).await?;
+
+                    // Guess content type from file extension
+                    let content_type = mime_guess::from_path(path)
+                        .first_or_octet_stream()
+                        .to_string();
+
+                    body.extend_from_slice(
+                        format!(
+                            "Content-Disposition: form-data; name=\"{}\"; filename=\"{}\"\r\n",
+                            key, filename
+                        )
+                        .as_bytes(),
+                    );
+                    body.extend_from_slice(
+                        format!("Content-Type: {}\r\n\r\n", content_type).as_bytes(),
+                    );
+                    body.extend_from_slice(&content);
+                    body.extend_from_slice(b"\r\n");
+                } else {
+                    // Text field
+                    body.extend_from_slice(
+                        format!("Content-Disposition: form-data; name=\"{}\"\r\n\r\n", key)
+                            .as_bytes(),
+                    );
+                    body.extend_from_slice(value.as_bytes());
+                    body.extend_from_slice(b"\r\n");
+                }
+            }
+        }
+
+        // Final boundary
+        body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
+
+        let content_type = format!("multipart/form-data; boundary={}", boundary);
+        Ok((Bytes::from(body), content_type))
+    }
+
     fn build_auth(&self, cli: &Cli) -> Result<Option<String>> {
         if let Some(ref auth) = cli.auth {
             if auth.contains(':') {
@@ -300,6 +392,190 @@ impl HttpClient {
         } else {
             Ok(None)
         }
+    }
+
+    async fn download_file(&self, method: &str, url: &str, cli: &Cli) -> Result<()> {
+        use indicatif::{ProgressBar, ProgressStyle};
+        use tokio::io::AsyncWriteExt;
+
+        info!("Download mode activated for {}", url);
+
+        // Determine output path
+        let output_path = if let Some(ref path) = cli.output_file {
+            path.clone()
+        } else {
+            // Auto-detect filename from URL
+            let url_path = url::Url::parse(url)?.path().to_string();
+            let filename = url_path.split('/').last().unwrap_or("download");
+            std::path::PathBuf::from(if filename.is_empty() { "download" } else { filename })
+        };
+
+        // Check for resume support
+        let existing_size = if cli.resume && output_path.exists() {
+            tokio::fs::metadata(&output_path).await.ok()
+                .map(|m| m.len())
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        // Build request with optional Range header
+        let mut headers = cli.headers.clone();
+        if existing_size > 0 {
+            headers.push(format!("Range: bytes={}-", existing_size));
+            info!("Resuming download from byte {}", existing_size);
+        }
+
+        let request = Request::builder()
+            .method(method)
+            .url(url)
+            .headers(&headers)
+            .user_agent(&self.config.client.user_agent)
+            .auth(self.build_auth(cli)?)?
+            .timeout(Duration::from_secs(self.config.client.timeout))
+            .build()?;
+
+        let hyper_request = self.build_hyper_request(request)?;
+        let mut hyper_response = self.client.request(hyper_request).await?;
+
+        // Handle redirects manually for download mode
+        let mut redirect_count = 0;
+        let max_redirects = if cli.follow_redirects || self.config.client.follow_redirects {
+            self.config.client.max_redirects
+        } else {
+            0
+        };
+
+        while redirect_count < max_redirects {
+            let status = hyper_response.status();
+
+            // Check if this is a redirect
+            if status.is_redirection() {
+                if let Some(location) = hyper_response.headers().get("location") {
+                    let location_str = location.to_str()
+                        .map_err(|_| HttpCliError::Generic("Invalid redirect location".to_string()))?;
+
+                    // Resolve relative URLs
+                    let redirect_url = if location_str.starts_with("http") {
+                        location_str.to_string()
+                    } else {
+                        let base = url::Url::parse(url)?;
+                        base.join(location_str)?.to_string()
+                    };
+
+                    info!("Following redirect to: {}", redirect_url);
+                    redirect_count += 1;
+
+                    // Make new request to redirect location
+                    let redirect_request = Request::builder()
+                        .method(method)
+                        .url(&redirect_url)
+                        .headers(&headers)
+                        .user_agent(&self.config.client.user_agent)
+                        .auth(self.build_auth(cli)?)?
+                        .timeout(Duration::from_secs(self.config.client.timeout))
+                        .build()?;
+
+                    let redirect_hyper_request = self.build_hyper_request(redirect_request)?;
+                    hyper_response = self.client.request(redirect_hyper_request).await?;
+                    continue;
+                }
+            }
+
+            // Not a redirect, break
+            break;
+        }
+
+        let status = hyper_response.status();
+        let headers_map = hyper_response.headers();
+
+        // Check if server supports resume
+        if existing_size > 0 && status.as_u16() != 206 {
+            if status.as_u16() == 200 {
+                info!("Server doesn't support resume, restarting download from beginning");
+            } else {
+                return Err(HttpCliError::Generic(format!(
+                    "Unexpected status code for resume: {}",
+                    status
+                )));
+            }
+        }
+
+        // Get content length
+        let content_length = headers_map
+            .get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok());
+
+        let total_size = if status.as_u16() == 206 {
+            // Partial content - add existing size
+            content_length.map(|len| len + existing_size)
+        } else {
+            content_length
+        };
+
+        let pb = if let Some(size) = total_size {
+            let pb = ProgressBar::new(size);
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template("[{bar:40}] {bytes}/{total_bytes} ({eta})")
+                    .expect("Failed to create progress style")
+                    .progress_chars("=> "),
+            );
+            if existing_size > 0 {
+                pb.set_position(existing_size);
+            }
+            Some(pb)
+        } else {
+            // Unknown size - use spinner
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{spinner} {bytes} downloaded")
+                    .expect("Failed to create spinner style"),
+            );
+            Some(pb)
+        };
+
+        // Open file for writing
+        let mut file = if existing_size > 0 && status.as_u16() == 206 {
+            // Append mode for resume
+            tokio::fs::OpenOptions::new()
+                .append(true)
+                .open(&output_path)
+                .await?
+        } else {
+            // Create new file
+            tokio::fs::File::create(&output_path).await?
+        };
+
+        // Stream response body to file
+        let mut body = hyper_response.into_body();
+        let mut downloaded = existing_size;
+
+        while let Some(chunk) = body.frame().await {
+            let frame = chunk.map_err(|e| HttpCliError::Generic(format!("Stream error: {}", e)))?;
+
+            if let Ok(data) = frame.into_data() {
+                file.write_all(&data).await?;
+                downloaded += data.len() as u64;
+
+                if let Some(ref pb) = pb {
+                    pb.set_position(downloaded);
+                }
+            }
+        }
+
+        file.flush().await?;
+
+        if let Some(pb) = pb {
+            pb.finish_with_message(format!("Downloaded to {}", output_path.display()));
+        }
+
+        info!("Download complete: {}", output_path.display());
+        println!("Downloaded {} bytes to {}", downloaded, output_path.display());
+
+        Ok(())
     }
 
     async fn display_response(

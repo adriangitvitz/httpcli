@@ -7,6 +7,8 @@ A high-performance HTTP CLI tool with .http file support and syntax highlighting
 - **High Performance**: Built with Tokio async runtime and optimized for speed with LTO and mimalloc
 - **.http File Support**: Parse and execute requests from .http files with variable substitution
 - **Syntax Highlighting**: Beautiful colored output for JSON responses
+- **Download Mode**: Stream large files to disk with progress bars and resume support
+- **Multipart Forms**: Upload files and form data with automatic MIME type detection
 - **Multiple HTTP Methods**: Support for GET, POST, PUT, DELETE, PATCH, HEAD, and OPTIONS
 - **Authentication**: Basic auth, bearer tokens, and custom headers
 - **TLS/SSL**: Full TLS support with custom CA certificates and client certificates
@@ -171,6 +173,55 @@ httpcli POST https://api.example.com/upload --data-binary file.json
 # Disable TLS verification (insecure)
 httpcli GET https://self-signed.example.com --insecure
 ```
+
+### Download Mode with Progress Bar
+
+Download large files with a progress indicator and optional resume support:
+
+```bash
+# Download a file with progress bar
+httpcli get https://example.com/large-file.zip --download
+
+# Download to a specific filename
+httpcli get https://example.com/file.zip --download --output-file myfile.zip
+
+# Resume a partial download (if server supports Range headers)
+httpcli get https://example.com/large-file.zip --download --output-file myfile.zip --continue
+
+# Download from GitHub releases (handles redirects automatically)
+httpcli get https://github.com/user/repo/releases/download/v1.0/file.tar.gz --download
+```
+
+The download mode:
+- Streams directly to disk (no memory buffering)
+- Shows real-time progress bar with bytes transferred and ETA
+- Automatically follows redirects (up to 10 by default)
+- Automatically detects filename from URL if not specified
+- Supports resuming interrupted downloads with `--continue` flag
+- Handles servers that don't support resume gracefully
+- Works with GitHub releases and CDN redirects
+
+### Multipart Form Uploads
+
+Upload files and form data using multipart/form-data encoding:
+
+```bash
+# Upload a file
+httpcli post https://api.example.com/upload --form "file=@document.pdf"
+
+# Send form fields
+httpcli post https://api.example.com/submit --form "name=John" --form "email=john@example.com"
+
+# Mix text fields and file uploads
+httpcli post https://api.example.com/profile \\
+  --form "name=John Doe" \\
+  --form "avatar=@profile.jpg" \\
+  --form "resume=@resume.pdf"
+```
+
+Form field syntax:
+- Text field: `key=value`
+- File upload: `key=@filepath` (automatic MIME type detection)
 
 ### TLS/SSL Options
 

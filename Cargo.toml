@@ -43,6 +43,7 @@ syntect = "5.0"
 crossterm = "0.27"
 ratatui = "0.24"
 tui-textarea = "0.4"
+indicatif = "0.17"
 
 # Performance and memory optimization
 mimalloc = { version = "0.1", default-features = false, optional = true }
